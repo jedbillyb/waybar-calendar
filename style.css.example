@@ -1,0 +1,22 @@
+/* waybar-calendar styling — merge into ~/.config/waybar/style.css */
+
+#custom-calendar {
+    color: #aaaaaa;
+    padding: 0 10px;
+}
+
+/* Next event is today */
+#custom-calendar.today {
+    color: #7aa2f7;
+}
+
+/* Next event is on a later day */
+#custom-calendar.upcoming {
+    color: #888888;
+}
+
+/* No upcoming events — collapse the module */
+#custom-calendar.none {
+    padding: 0;
+    margin: 0;
+}
