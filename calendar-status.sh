@@ -16,6 +16,8 @@ CACHE_DIR="${CAL_CACHE_DIR:-$HOME/.cache/waybar-calendar}"
 SKIP_INPROGRESS="${CAL_SKIP_INPROGRESS:-1}"  # 1 = show next upcoming; 0 = include the event happening now
 NEAR_MINS="${CAL_NEAR_MINS:-60}"    # within this many minutes, show a countdown ("in 15m") instead of the start time
 SOON_MINS="${CAL_SOON_MINS:-10}"    # within this many minutes, highlight the module ("soon" class)
+SHOW_ROOM="${CAL_SHOW_ROOM:-1}"     # 1 = append the event's Location (room), e.g. "L2PHY @SCI2"
+ROOM_SEP="${CAL_ROOM_SEP:-@}"       # separator before the room
 
 # The fetch backend. Override CAL_FETCH_CMD with any command that prints event
 # lines in the format:  [YYYY-MM-DD HH:MM - HH:MM] Title [CalName] (id: ...)
@@ -46,26 +48,41 @@ if [ ! -s "$RAW" ]; then
 fi
 
 # ── Parse cached event lines ────────────────────────────────────────────────────
-# Line format from gcalendar.py fmt_event():
+# gcalendar.py fmt_event() emits one event per block:
 #   [YYYY-MM-DD HH:MM - HH:MM] Summary [CalName] (id: ...)
+#     Location: <room>        (optional, indented)
+#     Desc: ...               (optional, indented)
 today="$(date +%Y-%m-%d)"
 tomorrow="$(date -d 'tomorrow' +%Y-%m-%d)"
 
+line_re='^\[([0-9]{4}-[0-9]{2}-[0-9]{2}) ([0-9]{2}:[0-9]{2}) - [^]]*\] (.+) \(id: [^)]*\)$'
+loc_re='^[[:space:]]+Location:[[:space:]]*(.+)$'
+
+# Pass 1: collect events with their (optional) room, in order.
+dates=(); times=(); titles=(); rooms=(); starts=()
+while IFS= read -r line; do
+    if [[ "$line" =~ $line_re ]]; then
+        title="${BASH_REMATCH[3]}"
+        title="${title% \[*\]}"      # strip trailing " [CalName]" tag
+        dates+=("${BASH_REMATCH[1]}")
+        times+=("${BASH_REMATCH[2]}")
+        titles+=("$title")
+        rooms+=("")
+        starts+=("$(date -d "${BASH_REMATCH[1]} ${BASH_REMATCH[2]}" +%s 2>/dev/null || echo 0)")
+    elif [[ "$line" =~ $loc_re ]] && [ "${#rooms[@]}" -gt 0 ]; then
+        rooms[$(( ${#rooms[@]} - 1 ))]="${BASH_REMATCH[1]}"
+    fi
+done < "$RAW"
+
+# Pass 2: pick the next event (skipping in-progress) and build text + tooltip.
 first_text=""
 first_mins=999999
 first_today=0
 tooltip=""
 count=0
-line_re='^\[([0-9]{4}-[0-9]{2}-[0-9]{2}) ([0-9]{2}:[0-9]{2}) - [^]]*\] (.+) \(id: [^)]*\)$'
-
-while IFS= read -r line; do
-    [[ "$line" =~ $line_re ]] || continue
-    d="${BASH_REMATCH[1]}"
-    t="${BASH_REMATCH[2]}"
-    title="${BASH_REMATCH[3]}"
-    title="${title% \[*\]}"          # strip trailing " [CalName]" tag
-
-    start_epoch="$(date -d "$d $t" +%s 2>/dev/null || echo 0)"
+for i in "${!dates[@]}"; do
+    d="${dates[$i]}"; t="${times[$i]}"; title="${titles[$i]}"
+    room="${rooms[$i]}"; start_epoch="${starts[$i]}"
 
     # Show what's *next*, not what's happening now: skip events already started
     # (unless CAL_SKIP_INPROGRESS=0).
@@ -82,12 +99,14 @@ while IFS= read -r line; do
 
     short="$title"
     [ "${#short}" -gt 22 ] && short="${short:0:21}…"
+    # Append the room, e.g. "L2PHY @SCI2".
+    [ "$SHOW_ROOM" = "1" ] && [ -n "$room" ] && short="${short} ${ROOM_SEP}${room}"
 
     if [ -z "$first_text" ]; then
         mins=$(( (start_epoch - now) / 60 ))
         (( mins < 0 )) && mins=0
         if [ "$start_epoch" -gt "$now" ] && [ "$mins" -le "$NEAR_MINS" ]; then
-            # Close by — relative countdown, e.g. "MentorTime in 15m".
+            # Close by — relative countdown, e.g. "L2PHY @SCI2 in 15m".
             if   [ "$mins" -lt 60 ];   then rel="${mins}m"
             elif [ "$mins" -lt 1440 ]; then rel="$(( mins / 60 ))h"
             else                            rel="$(( mins / 1440 ))d"
@@ -101,13 +120,14 @@ while IFS= read -r line; do
         [ "$d" = "$today" ] && first_today=1 || first_today=0
     fi
 
-    # Tooltip: up to 6 upcoming events, fuller titles.
+    # Tooltip: up to 6 upcoming events, fuller titles + room.
     if [ "$count" -lt 6 ]; then
         tt="$(date -d "$d" '+%a %d %b') ${t}  ${title}"
+        [ -n "$room" ] && tt="${tt} (${room})"
         tooltip="${tooltip}${tt}\n"
         count=$((count+1))
     fi
-done < "$RAW"
+done
 
 if [ -z "$first_text" ]; then
     printf '{"text":"","class":"none","tooltip":false}\n'

@@ -101,6 +101,8 @@ All options are environment variables - set them inline in the module `exec`, e.
 | `CAL_SKIP_INPROGRESS` | `1`                           | `1` = show next upcoming event; `0` = include the one happening now |
 | `CAL_NEAR_MINS`       | `60`                          | Within this many minutes, show a countdown instead of the start time |
 | `CAL_SOON_MINS`       | `10`                          | Within this many minutes, add the `soon` class for highlighting    |
+| `CAL_SHOW_ROOM`       | `1`                           | Append the event's Location (room), e.g. `L2PHY @SCI2`             |
+| `CAL_ROOM_SEP`        | `@`                           | Separator shown before the room                                    |
 | `CAL_FETCH_CMD`       | *(ssh + `gcalendar.py`)*      | Custom command that prints the event lines                         |
 
 ### Styling
