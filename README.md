@@ -1,6 +1,6 @@
 # waybar-calendar
 
-> Your next calendar event, right in the bar — countdown and all.
+> Your next calendar event, right in the bar - countdown and all.
 
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
 [![Shell](https://img.shields.io/badge/Bash-4+-4EAA25?style=flat-square&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
@@ -11,7 +11,7 @@ calendar event** in the bar, Fantastical-style: the event's title with its start
 time, switching to a live countdown (`in 15m`) as it approaches, and the full
 agenda in the tooltip. Built and tested on Void Linux + sway.
 
-There is **no local Google OAuth** and nothing to authorize on your laptop — the
+There is **no local Google OAuth** and nothing to authorize on your laptop - the
 module runs a small, read-only *fetch command* (by default an existing
 `gcalendar.py` CLI over SSH), caches the result, and never touches your calendar
 for writes.
@@ -20,27 +20,27 @@ for writes.
 
 ## Features
 
-- **Up next, at a glance** — shows the next upcoming event, skipping the one
+- **Up next, at a glance** - shows the next upcoming event, skipping the one
   currently in progress (toggleable)
-- **Smart countdown** — displays `Standup in 12m` when the event is near, or
+- **Smart countdown** - displays `Standup in 12m` when the event is near, or
   `Tmrw 08:35 Standup` when it's further out
-- **Imminent highlight** — a `soon` CSS class kicks in a few minutes before, so
+- **Imminent highlight** - a `soon` CSS class kicks in a few minutes before, so
   you can colour it to catch your eye
-- **Agenda tooltip** — the next several events with full dates on hover
-- **Cheap + resilient** — re-fetches at most once every few minutes and reuses
+- **Agenda tooltip** - the next several events with full dates on hover
+- **Cheap + resilient** - re-fetches at most once every few minutes and reuses
   the last cache on network hiccups, so the bar never blanks
-- **Backend-agnostic** — point it at any command that prints the expected line
+- **Backend-agnostic** - point it at any command that prints the expected line
   format (SSH + `gcalendar.py`, `gcalcli`, a cron'd `.ics` dump, …)
 
 ---
 
 ## How it works
 
-1. **Fetch** — on a stale cache, the module runs `CAL_FETCH_CMD` (default: SSH to
+1. **Fetch** - on a stale cache, the module runs `CAL_FETCH_CMD` (default: SSH to
    a host and run `gcalendar.py list N`) to get upcoming events as plain text.
-2. **Cache** — output is stored under `~/.cache/waybar-calendar/` with a
+2. **Cache** - output is stored under `~/.cache/waybar-calendar/` with a
    timestamp; real fetches happen at most once per `CAL_REFRESH_SECS`.
-3. **Render** — every poll, the script reads the cache, picks the next event,
+3. **Render** - every poll, the script reads the cache, picks the next event,
    formats the text (start time or countdown), and prints JSON for waybar.
 
 If a fetch fails (server down, no network) the previous cache is reused, so a
@@ -67,7 +67,7 @@ produces. Anything else that emits the same shape works too.
 
 Then follow the printed steps:
 
-- **`~/.config/waybar/config`** — add the `custom/calendar` module:
+- **`~/.config/waybar/config`** - add the `custom/calendar` module:
 
   ```json
   "custom/calendar": {
@@ -78,7 +78,7 @@ Then follow the printed steps:
   }
   ```
 
-- **`~/.config/waybar/style.css`** — merge in the colours from `style.css.example`.
+- **`~/.config/waybar/style.css`** - merge in the colours from `style.css.example`.
 
 Reload waybar (`pkill -x waybar; waybar &`) and your next event appears.
 
@@ -86,7 +86,7 @@ Reload waybar (`pkill -x waybar; waybar &`) and your next event appears.
 
 ## Configuration
 
-All options are environment variables — set them inline in the module `exec`, e.g.:
+All options are environment variables - set them inline in the module `exec`, e.g.:
 
 ```json
 "exec": "CAL_SERVER=me@host CAL_NEAR_MINS=30 ~/.config/waybar/calendar-status.sh"
@@ -125,10 +125,10 @@ use something local instead, set `CAL_FETCH_CMD` to any command that prints the
 [expected format](#expected-event-format), for example a wrapper around
 [`gcalcli`](https://github.com/insanum/gcalcli) or a script that parses a
 downloaded `.ics` file. Private calendar data stays on whatever host you fetch
-from — it's never published to a URL.
+from - it's never published to a URL.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT - see [LICENSE](./LICENSE).
