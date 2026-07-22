@@ -15,6 +15,11 @@
     color: #888888;
 }
 
+/* Next event is imminent (within CAL_SOON_MINS) */
+#custom-calendar.soon {
+    color: #e0af68;
+}
+
 /* No upcoming events — collapse the module */
 #custom-calendar.none {
     padding: 0;

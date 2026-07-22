@@ -42,6 +42,8 @@ Then follow the printed steps: add the `custom/calendar` module to your waybar
 | `CAL_REFRESH_SECS`  | `600`                            | Minimum seconds between real fetches               |
 | `CAL_CACHE_DIR`     | `~/.cache/waybar-calendar`       | Where the event cache lives                        |
 | `CAL_SKIP_INPROGRESS`| `1`                             | `1` = show next upcoming event; `0` = include the one happening now |
+| `CAL_NEAR_MINS`     | `60`                             | Within this many minutes, show a countdown ("in 15m") instead of the start time |
+| `CAL_SOON_MINS`     | `10`                             | Within this many minutes, highlight the module (`soon` class) |
 | `CAL_FETCH_CMD`     | *(ssh + gcalendar.py)*           | Custom command that prints the event lines         |
 
 Set them inline in the module `exec`, e.g.:

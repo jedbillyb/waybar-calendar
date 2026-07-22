@@ -14,6 +14,8 @@ LOOKAHEAD_DAYS="${CAL_LOOKAHEAD_DAYS:-14}"
 REFRESH="${CAL_REFRESH_SECS:-600}"        # re-fetch from server at most this often
 CACHE_DIR="${CAL_CACHE_DIR:-$HOME/.cache/waybar-calendar}"
 SKIP_INPROGRESS="${CAL_SKIP_INPROGRESS:-1}"  # 1 = show next upcoming; 0 = include the event happening now
+NEAR_MINS="${CAL_NEAR_MINS:-60}"    # within this many minutes, show a countdown ("in 15m") instead of the start time
+SOON_MINS="${CAL_SOON_MINS:-10}"    # within this many minutes, highlight the module ("soon" class)
 
 # The fetch backend. Override CAL_FETCH_CMD with any command that prints event
 # lines in the format:  [YYYY-MM-DD HH:MM - HH:MM] Title [CalName] (id: ...)
@@ -50,6 +52,8 @@ today="$(date +%Y-%m-%d)"
 tomorrow="$(date -d 'tomorrow' +%Y-%m-%d)"
 
 first_text=""
+first_mins=999999
+first_today=0
 tooltip=""
 count=0
 line_re='^\[([0-9]{4}-[0-9]{2}-[0-9]{2}) ([0-9]{2}:[0-9]{2}) - [^]]*\] (.+) \(id: [^)]*\)$'
@@ -61,11 +65,12 @@ while IFS= read -r line; do
     title="${BASH_REMATCH[3]}"
     title="${title% \[*\]}"          # strip trailing " [CalName]" tag
 
+    start_epoch="$(date -d "$d $t" +%s 2>/dev/null || echo 0)"
+
     # Show what's *next*, not what's happening now: skip events already started
     # (unless CAL_SKIP_INPROGRESS=0).
-    if [ "$SKIP_INPROGRESS" = "1" ]; then
-        start_epoch="$(date -d "$d $t" +%s 2>/dev/null || echo 0)"
-        [ "$start_epoch" -le "$now" ] && continue
+    if [ "$SKIP_INPROGRESS" = "1" ] && [ "$start_epoch" -le "$now" ]; then
+        continue
     fi
 
     # Day prefix relative to today.
@@ -79,7 +84,21 @@ while IFS= read -r line; do
     [ "${#short}" -gt 22 ] && short="${short:0:21}…"
 
     if [ -z "$first_text" ]; then
-        first_text="${dpfx}${t} ${short}"
+        mins=$(( (start_epoch - now) / 60 ))
+        (( mins < 0 )) && mins=0
+        if [ "$start_epoch" -gt "$now" ] && [ "$mins" -le "$NEAR_MINS" ]; then
+            # Close by — relative countdown, e.g. "MentorTime in 15m".
+            if   [ "$mins" -lt 60 ];   then rel="${mins}m"
+            elif [ "$mins" -lt 1440 ]; then rel="$(( mins / 60 ))h"
+            else                            rel="$(( mins / 1440 ))d"
+            fi
+            first_text="${short} in ${rel}"
+        else
+            # Further out — show the start time (with day prefix).
+            first_text="${dpfx}${t} ${short}"
+        fi
+        first_mins=$mins
+        [ "$d" = "$today" ] && first_today=1 || first_today=0
     fi
 
     # Tooltip: up to 6 upcoming events, fuller titles.
@@ -95,10 +114,14 @@ if [ -z "$first_text" ]; then
     exit 0
 fi
 
-# Highlight if the next event is today (today's line starts with the time digit;
-# future days are prefixed with a weekday / "Tmrw").
-class="upcoming"
-[[ "$first_text" =~ ^[0-9] ]] && class="today"
+# Class drives colour: 'soon' when imminent, else 'today' / 'upcoming'.
+if [ "$first_mins" -le "$SOON_MINS" ]; then
+    class="soon"
+elif [ "$first_today" = "1" ]; then
+    class="today"
+else
+    class="upcoming"
+fi
 
 tooltip="${tooltip%\\n}"
 esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
