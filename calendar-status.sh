@@ -21,8 +21,13 @@ ROOM_SEP="${CAL_ROOM_SEP:-@}"       # separator before the room
 
 # The fetch backend. Override CAL_FETCH_CMD with any command that prints event
 # lines in the format:  [YYYY-MM-DD HH:MM - HH:MM] Title [CalName] (id: ...)
-# The default calls the read-only gcalendar.py CLI on a remote host over SSH.
-DEFAULT_FETCH="ssh -o BatchMode=yes -o ConnectTimeout=5 $SERVER \"cd obsidian-sync && python3 gcalendar.py list $LOOKAHEAD_DAYS 2>/dev/null\""
+# Runs the read-only gcalendar.py CLI locally (own venv + copied OAuth token,
+# kept in GCAL_DIR outside this git-tracked repo). The old SSH-to-server
+# backend is preserved below and still selectable via CAL_FETCH_CMD if needed.
+GCAL_DIR="${CAL_GCAL_DIR:-/mnt/shared/projects/waybar-gcal}"
+DEFAULT_FETCH="$GCAL_DIR/.venv/bin/python $GCAL_DIR/gcalendar.py list $LOOKAHEAD_DAYS 2>/dev/null"
+# Legacy remote backend (kept for reference):
+#   CAL_FETCH_CMD='ssh -o BatchMode=yes -o ConnectTimeout=5 '"$SERVER"' "cd obsidian-sync && python3 gcalendar.py list '"$LOOKAHEAD_DAYS"' 2>/dev/null"'
 FETCH_CMD="${CAL_FETCH_CMD:-$DEFAULT_FETCH}"
 RAW="$CACHE_DIR/raw.txt"
 STAMP="$CACHE_DIR/fetched_at"
