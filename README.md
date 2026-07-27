@@ -24,7 +24,8 @@ one up, otherwise it falls back to running that same CLI on a remote host over
 - **Up next, at a glance** - shows the next upcoming event, skipping the one
   currently in progress (toggleable)
 - **Smart countdown** - displays `Standup in 12m` when the event is near, or
-  `Tmrw 08:35 Standup` when it's further out
+  `Tmrw 08:35 Standup` when it's further out, and drops to a second-by-second
+  `Standup in 45s` in the last minute
 - **Imminent highlight** - a `soon` CSS class kicks in a few minutes before, so
   you can colour it to catch your eye
 - **Agenda tooltip** - the next several events with full dates on hover
@@ -44,8 +45,17 @@ one up, otherwise it falls back to running that same CLI on a remote host over
    and run `gcalendar.py list N`). Set `CAL_FETCH_CMD` to override both.
 2. **Cache** - output is stored under `~/.cache/waybar-calendar/` with a
    timestamp; real fetches happen at most once per `CAL_REFRESH_SECS`.
-3. **Render** - every poll, the script reads the cache, picks the next event,
-   formats the text (start time or countdown), and prints JSON for waybar.
+3. **Render** - on every tick the script picks the next event, formats the text
+   (start time or countdown), and prints JSON for waybar.
+
+Run it either way:
+
+- **Streaming** (`--loop`, recommended) - one long-lived process that prints a
+  line every `CAL_TICK_SECS` (default 1s), so the sub-minute countdown ticks in
+  real time. It re-reads the cache only when the cache file changes, and a tick
+  costs no subprocesses at all.
+- **One-shot** (no arguments) - prints a single line and exits; let waybar's
+  `interval` drive it. Simpler, but the countdown moves only as often as you poll.
 
 If a fetch fails (server down, no network) the previous cache is reused, so a
 dropped connection doesn't wipe the bar.
@@ -75,12 +85,16 @@ Then follow the printed steps:
 
   ```json
   "custom/calendar": {
-      "exec": "~/.config/waybar/calendar-status.sh",
+      "exec": "~/.config/waybar/calendar-status.sh --loop",
       "return-type": "json",
-      "interval": 60,
+      "restart-interval": 5,
       "tooltip": true
   }
   ```
+
+  That streams a line every second (see [How it works](#how-it-works)). For the
+  simpler polled setup, drop `--loop` and use `"interval": 60` instead of
+  `"restart-interval"`.
 
 - **`~/.config/waybar/style.css`** - merge in the colours from `style.css.example`.
 
@@ -109,6 +123,8 @@ All options are environment variables - set them inline in the module `exec`, e.
 | `CAL_SHOW_ROOM`       | `1`                           | Append the event's Location (room), e.g. `L2PHY @SCI2`             |
 | `CAL_ROOM_SEP`        | `@`                           | Separator shown before the room                                    |
 | `CAL_FETCH_CMD`       | *(ssh + `gcalendar.py`)*      | Custom command that prints the event lines                         |
+| `CAL_TICK_SECS`       | `1`                           | `--loop` only: seconds between printed lines                       |
+| `CAL_CHECK_SECS`      | `15`                          | `--loop` only: how often to re-check the cache file for changes     |
 
 ### Styling
 

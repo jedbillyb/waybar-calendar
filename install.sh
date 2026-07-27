@@ -20,9 +20,9 @@ Next steps
    ~/.config/waybar/config, and add this module definition:
 
     "custom/calendar": {
-        "exec": "~/.config/waybar/calendar-status.sh",
+        "exec": "~/.config/waybar/calendar-status.sh --loop",
         "return-type": "json",
-        "interval": 60,
+        "restart-interval": 5,
         "tooltip": true
     }
 
