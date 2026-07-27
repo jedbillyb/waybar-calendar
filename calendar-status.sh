@@ -21,13 +21,20 @@ ROOM_SEP="${CAL_ROOM_SEP:-@}"       # separator before the room
 
 # The fetch backend. Override CAL_FETCH_CMD with any command that prints event
 # lines in the format:  [YYYY-MM-DD HH:MM - HH:MM] Title [CalName] (id: ...)
-# Runs the read-only gcalendar.py CLI locally (own venv + copied OAuth token,
-# kept in GCAL_DIR outside this git-tracked repo). The old SSH-to-server
-# backend is preserved below and still selectable via CAL_FETCH_CMD if needed.
-GCAL_DIR="${CAL_GCAL_DIR:-/mnt/shared/projects/waybar-gcal}"
-DEFAULT_FETCH="$GCAL_DIR/.venv/bin/python $GCAL_DIR/gcalendar.py list $LOOKAHEAD_DAYS 2>/dev/null"
-# Legacy remote backend (kept for reference):
-#   CAL_FETCH_CMD='ssh -o BatchMode=yes -o ConnectTimeout=5 '"$SERVER"' "cd obsidian-sync && python3 gcalendar.py list '"$LOOKAHEAD_DAYS"' 2>/dev/null"'
+#
+# Two built-in backends, auto-selected:
+#   local  - a read-only gcalendar.py CLI in its own venv under GCAL_DIR (kept
+#            outside this repo since it holds the OAuth token). Used when present.
+#   remote - SSH to a host running the same gcalendar.py. Fallback when there is
+#            no local venv, so a fresh checkout works with zero setup.
+GCAL_DIR="${CAL_GCAL_DIR:-$HOME/.local/share/waybar-calendar/gcal}"
+LOCAL_FETCH="$GCAL_DIR/.venv/bin/python $GCAL_DIR/gcalendar.py list $LOOKAHEAD_DAYS 2>/dev/null"
+REMOTE_FETCH="ssh -o BatchMode=yes -o ConnectTimeout=5 $SERVER \"cd obsidian-sync && python3 gcalendar.py list $LOOKAHEAD_DAYS 2>/dev/null\""
+if [ -x "$GCAL_DIR/.venv/bin/python" ] && [ -f "$GCAL_DIR/gcalendar.py" ]; then
+    DEFAULT_FETCH="$LOCAL_FETCH"
+else
+    DEFAULT_FETCH="$REMOTE_FETCH"
+fi
 FETCH_CMD="${CAL_FETCH_CMD:-$DEFAULT_FETCH}"
 RAW="$CACHE_DIR/raw.txt"
 STAMP="$CACHE_DIR/fetched_at"
@@ -112,7 +119,9 @@ for i in "${!dates[@]}"; do
         (( mins < 0 )) && mins=0
         if [ "$start_epoch" -gt "$now" ] && [ "$mins" -le "$NEAR_MINS" ]; then
             # Close by — relative countdown, e.g. "L2PHY @SCI2 in 15m".
-            if   [ "$mins" -lt 60 ];   then rel="${mins}m"
+            # Under a minute, count down in seconds rather than showing "0m".
+            if   [ "$mins" -lt 1 ];    then rel="$(( start_epoch - now ))s"
+            elif [ "$mins" -lt 60 ];   then rel="${mins}m"
             elif [ "$mins" -lt 1440 ]; then rel="$(( mins / 60 ))h"
             else                            rel="$(( mins / 1440 ))d"
             fi

@@ -11,10 +11,11 @@ calendar event** in the bar, Fantastical-style: the event's title with its start
 time, switching to a live countdown (`in 15m`) as it approaches, and the full
 agenda in the tooltip. Built and tested on Void Linux + sway.
 
-There is **no local Google OAuth** and nothing to authorize on your laptop - the
-module runs a small, read-only *fetch command* (by default an existing
-`gcalendar.py` CLI over SSH), caches the result, and never touches your calendar
-for writes.
+The module runs a small, read-only *fetch command*, caches the result, and never
+touches your calendar for writes. It ships with two interchangeable backends and
+picks one automatically: a **local** `gcalendar.py` in its own venv if you've set
+one up, otherwise it falls back to running that same CLI on a remote host over
+**SSH** - so a fresh checkout works with zero local setup.
 
 ---
 
@@ -36,8 +37,11 @@ for writes.
 
 ## How it works
 
-1. **Fetch** - on a stale cache, the module runs `CAL_FETCH_CMD` (default: SSH to
-   a host and run `gcalendar.py list N`) to get upcoming events as plain text.
+1. **Fetch** - on a stale cache, the module runs the fetch backend to get
+   upcoming events as plain text. It uses the **local** backend when a venv is
+   present at `CAL_GCAL_DIR` (`$GCAL_DIR/.venv/bin/python $GCAL_DIR/gcalendar.py
+   list N`), otherwise falls back to the **remote** backend (SSH to `CAL_SERVER`
+   and run `gcalendar.py list N`). Set `CAL_FETCH_CMD` to override both.
 2. **Cache** - output is stored under `~/.cache/waybar-calendar/` with a
    timestamp; real fetches happen at most once per `CAL_REFRESH_SECS`.
 3. **Render** - every poll, the script reads the cache, picks the next event,
@@ -94,7 +98,8 @@ All options are environment variables - set them inline in the module `exec`, e.
 
 | Variable              | Default                       | Purpose                                                            |
 |-----------------------|-------------------------------|--------------------------------------------------------------------|
-| `CAL_SERVER`          | `ubuntu@server.jedbillyb.com` | SSH target for the default backend                                 |
+| `CAL_GCAL_DIR`        | `~/.local/share/waybar-calendar/gcal` | Local backend dir (`.venv` + `gcalendar.py`); used automatically when present |
+| `CAL_SERVER`          | `ubuntu@server.jedbillyb.com` | SSH target for the remote fallback backend                         |
 | `CAL_LOOKAHEAD_DAYS`  | `14`                          | How far ahead to fetch                                             |
 | `CAL_REFRESH_SECS`    | `600`                         | Minimum seconds between real fetches                               |
 | `CAL_CACHE_DIR`       | `~/.cache/waybar-calendar`    | Where the event cache lives                                        |
@@ -122,9 +127,40 @@ See `style.css.example` for a starting palette.
 
 ## Backends
 
-The default backend SSHes to a host running a read-only Google Calendar CLI. To
-use something local instead, set `CAL_FETCH_CMD` to any command that prints the
-[expected format](#expected-event-format), for example a wrapper around
+The module auto-selects between two built-in backends and you can always override
+with `CAL_FETCH_CMD`.
+
+### Remote (default, zero setup)
+
+SSHes to a host running the bundled read-only `gcalendar.py` and runs
+`gcalendar.py list N`. Point it at your host with `CAL_SERVER`. This is the
+fallback whenever no local backend is configured.
+
+### Local (no per-poll SSH)
+
+Run the same CLI on this machine so the bar never opens a network connection.
+Put a venv and the OAuth files in `CAL_GCAL_DIR` (outside this repo, since it
+holds a token) and the module uses it automatically:
+
+```sh
+GCAL_DIR=~/.local/share/waybar-calendar/gcal   # or set CAL_GCAL_DIR to taste
+mkdir -p "$GCAL_DIR"
+# copy the CLI + its OAuth token/secret from wherever it's already authorized:
+scp you@host:'~/obsidian-sync/gcalendar.py' \
+    you@host:'~/obsidian-sync/calendar_token.json' \
+    you@host:'~/obsidian-sync/client_secret_*.json' "$GCAL_DIR"/
+chmod 600 "$GCAL_DIR"/calendar_token.json "$GCAL_DIR"/client_secret_*.json
+python3 -m venv "$GCAL_DIR/.venv"
+"$GCAL_DIR/.venv/bin/pip" install google-api-python-client google-auth
+```
+
+The token auto-refreshes locally; the client's refresh token can be shared with
+the original host (Google "Desktop app" clients don't rotate it).
+
+### Anything else
+
+Set `CAL_FETCH_CMD` to any command that prints the
+[expected format](#expected-event-format) - e.g. a wrapper around
 [`gcalcli`](https://github.com/insanum/gcalcli) or a script that parses a
 downloaded `.ics` file. Private calendar data stays on whatever host you fetch
 from - it's never published to a URL.
