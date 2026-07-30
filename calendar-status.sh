@@ -225,7 +225,18 @@ if [ "${1:-}" = "--loop" ]; then
             fi
         fi
         if [ -n "$raw_sig" ]; then render; else no_cache_line; fi
-        sleep "$TICK_SECS"
+        if [ "$TICK_SECS" = "1" ]; then
+            # Align to the next wall-clock second instead of a flat `sleep 1`,
+            # so the countdown doesn't drift out of phase with the system
+            # clock as loop-body runtime accumulates. $EPOCHREALTIME is a bash
+            # builtin (microsecond wall time), so this costs no fork either.
+            frac="${EPOCHREALTIME#*.}"
+            remaining_us=$(( 1000000 - 10#${frac:0:6} ))
+            printf -v sleep_for '%d.%06d' "$(( remaining_us / 1000000 ))" "$(( remaining_us % 1000000 ))"
+            sleep "$sleep_for"
+        else
+            sleep "$TICK_SECS"
+        fi
     done
 else
     refresh_cache
