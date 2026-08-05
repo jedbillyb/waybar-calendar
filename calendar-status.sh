@@ -26,6 +26,8 @@ SHOW_ROOM="${CAL_SHOW_ROOM:-1}"     # 1 = append the event's Location (room), e.
 ROOM_SEP="${CAL_ROOM_SEP:-@}"       # separator before the room
 TICK_SECS="${CAL_TICK_SECS:-1}"     # --loop only: seconds between printed lines
 CHECK_SECS="${CAL_CHECK_SECS:-15}"  # --loop only: how often to stat/re-read the cache file
+RETRY_SECS="${CAL_RETRY_SECS:-60}"  # after a failed fetch, wait this long before trying again
+STALE_SECS="${CAL_STALE_SECS:-5400}" # cache older than this + a failing fetch = say so in the bar
 
 # The fetch backend. Override CAL_FETCH_CMD with any command that prints event
 # lines in the format:  [YYYY-MM-DD HH:MM - HH:MM] Title [CalName] (id: ...)
@@ -36,8 +38,10 @@ CHECK_SECS="${CAL_CHECK_SECS:-15}"  # --loop only: how often to stat/re-read the
 #   remote - SSH to a host running the same gcalendar.py. Fallback when there is
 #            no local venv, so a fresh checkout works with zero setup.
 GCAL_DIR="${CAL_GCAL_DIR:-$HOME/.local/share/waybar-calendar/gcal}"
-LOCAL_FETCH="$GCAL_DIR/.venv/bin/python $GCAL_DIR/gcalendar.py list $LOOKAHEAD_DAYS 2>/dev/null"
-REMOTE_FETCH="ssh -o BatchMode=yes -o ConnectTimeout=5 $SERVER \"cd obsidian-sync && python3 gcalendar.py list $LOOKAHEAD_DAYS 2>/dev/null\""
+# NB: these deliberately do NOT swallow stderr - refresh_cache() reads it to tell
+# an expired OAuth token apart from a plain network failure.
+LOCAL_FETCH="$GCAL_DIR/.venv/bin/python $GCAL_DIR/gcalendar.py list $LOOKAHEAD_DAYS"
+REMOTE_FETCH="ssh -o BatchMode=yes -o ConnectTimeout=5 $SERVER \"cd obsidian-sync && python3 gcalendar.py list $LOOKAHEAD_DAYS\""
 if [ -x "$GCAL_DIR/.venv/bin/python" ] && [ -f "$GCAL_DIR/gcalendar.py" ]; then
     DEFAULT_FETCH="$LOCAL_FETCH"
 else
@@ -45,21 +49,60 @@ else
 fi
 FETCH_CMD="${CAL_FETCH_CMD:-$DEFAULT_FETCH}"
 RAW="$CACHE_DIR/raw.txt"
-STAMP="$CACHE_DIR/fetched_at"
+STAMP="$CACHE_DIR/fetched_at"     # last *successful* fetch
+ATTEMPT="$CACHE_DIR/attempted_at" # last fetch attempt, successful or not
+ERRLOG="$CACHE_DIR/last_error"
 
 mkdir -p "$CACHE_DIR"
 
+# How the last fetch went: ok | auth | fail. Anything other than "ok" gets said
+# out loud in the bar (see status_line) - a silently empty module is
+# indistinguishable from "nothing on today", which is how a dead OAuth token
+# went unnoticed for ten days. Persisted so a waybar restart doesn't silently
+# show a blank module again until the next retry comes round.
+STATEFILE="$CACHE_DIR/fetch_state"
+FETCH_STATE="ok"
+[ -f "$STATEFILE" ] && FETCH_STATE="$(cat "$STATEFILE" 2>/dev/null || echo ok)"
+
+set_state() { FETCH_STATE="$1"; printf '%s\n' "$1" > "$STATEFILE"; }
+
 # ── Refresh the cache if it is stale ────────────────────────────────────────────
 refresh_cache() {
-    local now last=0 data
+    local now last=0 attempt=0 data
     now="$(date +%s)"
     [ -f "$STAMP" ] && last="$(cat "$STAMP" 2>/dev/null || echo 0)"
     [ $(( now - last )) -ge "$REFRESH" ] || return 0
-    data="$(timeout 8 bash -c "$FETCH_CMD" 2>/dev/null)"
+    # A failing backend never updates $STAMP, so without this second gate the
+    # staleness check above stays true and we re-spawn the fetcher on every
+    # CHECK_SECS tick, forever.
+    [ -f "$ATTEMPT" ] && attempt="$(cat "$ATTEMPT" 2>/dev/null || echo 0)"
+    [ $(( now - attempt )) -ge "$RETRY_SECS" ] || return 0
+    printf '%s\n' "$now" > "$ATTEMPT"
+
+    data="$(timeout 20 bash -c "$FETCH_CMD" 2>"$ERRLOG")"
     if [ -n "$data" ] && printf '%s' "$data" | grep -q '^\['; then
         printf '%s\n' "$data" > "$RAW"
         printf '%s\n' "$now" > "$STAMP"
+        : > "$ERRLOG"
+        set_state ok
+        return 0
     fi
+    # gcalendar.py keeps the literal "invalid_grant" in its error message for
+    # exactly this check; a revoked/expired token never fixes itself, so it
+    # needs a different message from "the network is down right now".
+    if grep -qE 'invalid_grant|RefreshError|expired or revoked' "$ERRLOG" 2>/dev/null; then
+        set_state auth
+    else
+        set_state fail
+    fi
+}
+
+# Seconds since the last successful fetch (a very large number if never).
+cache_age() {
+    local now last=0
+    now="$(date +%s)"
+    [ -f "$STAMP" ] && last="$(cat "$STAMP" 2>/dev/null || echo 0)"
+    printf '%s' "$(( now - last ))"
 }
 
 # ── Parse cached event lines ────────────────────────────────────────────────────
@@ -207,6 +250,32 @@ esc() { esc_out="${1//\\/\\\\}"; esc_out="${esc_out//\"/\\\"}"; }
 # No cache at all (never fetched, backend unreachable) — collapse the module.
 no_cache_line() { printf '{"text":"","class":"none","tooltip":false}\n'; }
 
+# The token is dead and will not come back on its own - name the fix in the
+# tooltip so it doesn't need rediscovering.
+auth_line() {
+    printf '{"text":"%s","class":"auth","tooltip":"%s"}\n' \
+        " cal auth" \
+        "Google Calendar token expired or revoked.\nRe-authorise:\n  $GCAL_DIR/.venv/bin/python $GCAL_DIR/gcalendar.py auth"
+}
+
+# Fetching is failing for some other reason (no network, SSH down) *and* the
+# cache has aged out, so whatever is on screen can no longer be trusted.
+stale_line() {
+    printf '{"text":"%s","class":"stale","tooltip":"%s"}\n' \
+        " cal stale" \
+        "Calendar fetch failing; cache is $(( $(cache_age) / 3600 ))h old.\nSee $ERRLOG"
+}
+
+# Pick the right line for the current state. $1 is non-empty when parsed events
+# are available to render.
+status_line() {
+    case "$FETCH_STATE" in
+        auth) auth_line; return ;;
+        fail) if [ "$(cache_age)" -ge "$STALE_SECS" ]; then stale_line; return; fi ;;
+    esac
+    if [ -n "$1" ]; then render; else no_cache_line; fi
+}
+
 if [ "${1:-}" = "--loop" ]; then
     raw_sig=""; last_check=0
     while :; do
@@ -224,7 +293,7 @@ if [ "${1:-}" = "--loop" ]; then
                 fi
             fi
         fi
-        if [ -n "$raw_sig" ]; then render; else no_cache_line; fi
+        status_line "$raw_sig"
         if [ "$TICK_SECS" = "1" ]; then
             # Align to the next wall-clock second instead of a flat `sleep 1`,
             # so the countdown doesn't drift out of phase with the system
@@ -242,8 +311,8 @@ else
     refresh_cache
     if [ -s "$RAW" ]; then
         parse_events
-        render
+        status_line "yes"
     else
-        no_cache_line
+        status_line ""
     fi
 fi

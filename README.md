@@ -125,6 +125,8 @@ All options are environment variables - set them inline in the module `exec`, e.
 | `CAL_FETCH_CMD`       | *(ssh + `gcalendar.py`)*      | Custom command that prints the event lines                         |
 | `CAL_TICK_SECS`       | `1`                           | `--loop` only: seconds between printed lines                       |
 | `CAL_CHECK_SECS`      | `15`                          | `--loop` only: how often to re-check the cache file for changes     |
+| `CAL_RETRY_SECS`      | `60`                          | After a failed fetch, wait this long before retrying                |
+| `CAL_STALE_SECS`      | `5400`                        | Failing fetch + cache older than this = show the `stale` warning    |
 
 ### Styling
 
@@ -136,8 +138,19 @@ The module emits one of these CSS classes, so you can colour each state:
 | `upcoming` | next event is on a later day                     |
 | `soon`     | next event is within `CAL_SOON_MINS`             |
 | `none`     | nothing upcoming (module collapses)              |
+| `auth`     | OAuth token expired or revoked - needs re-auth   |
+| `stale`    | fetching is failing and the cache has aged out   |
 
 See `style.css.example` for a starting palette.
+
+### When the backend breaks
+
+`auth` and `stale` exist because the module's failure mode used to be invisible:
+a fetch error left the last good cache in place, and once every event in it had
+passed, `render` produced an empty string - exactly what "nothing on today"
+looks like. A dead OAuth token could sit there for days looking like a quiet
+week. Now the bar says `cal auth` (or `cal stale`), and the tooltip carries the
+command that fixes it.
 
 ---
 
@@ -167,11 +180,25 @@ scp you@host:'~/obsidian-sync/gcalendar.py' \
     you@host:'~/obsidian-sync/client_secret_*.json' "$GCAL_DIR"/
 chmod 600 "$GCAL_DIR"/calendar_token.json "$GCAL_DIR"/client_secret_*.json
 python3 -m venv "$GCAL_DIR/.venv"
-"$GCAL_DIR/.venv/bin/pip" install google-api-python-client google-auth
+"$GCAL_DIR/.venv/bin/pip" install google-api-python-client google-auth google-auth-oauthlib
 ```
 
 The token auto-refreshes locally; the client's refresh token can be shared with
 the original host (Google "Desktop app" clients don't rotate it).
+
+#### Re-authorising an expired token
+
+Google expires refresh tokens after **7 days** while the OAuth client is still in
+*Testing* publishing status, so the module will show `cal auth` about once a week
+until you publish the client. To mint a fresh token (opens a browser):
+
+```sh
+"$GCAL_DIR/.venv/bin/python" "$GCAL_DIR/gcalendar.py" auth
+```
+
+To stop it recurring, set the OAuth client's publishing status to **In
+production** in the Google Cloud console (APIs & Services → OAuth consent screen
+/ Audience → *Publish app*). Refresh tokens then last until explicitly revoked.
 
 ### Anything else
 

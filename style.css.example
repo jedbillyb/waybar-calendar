@@ -25,3 +25,13 @@
     padding: 0;
     margin: 0;
 }
+
+/* Google OAuth token expired or revoked - needs re-authorising by hand */
+#custom-calendar.auth {
+    color: #f7768e;
+}
+
+/* Fetching is failing (network, SSH) and the cache has aged past CAL_STALE_SECS */
+#custom-calendar.stale {
+    color: #c07a5a;
+}
