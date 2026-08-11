@@ -25,7 +25,9 @@ one up, otherwise it falls back to running that same CLI on a remote host over
   currently in progress (toggleable)
 - **Smart countdown** - displays `Standup in 12m` when the event is near, or
   `Tmrw 08:35 Standup` when it's further out, and drops to a second-by-second
-  `Standup in 45s` in the last minute
+  `Standup in 45s` in the last minute. Minutes are rounded up, so the countdown
+  always agrees with subtracting the bar's clock from the start time (clock
+  `11:57`, class at `12:00` reads `in 3m`, not `2m`)
 - **Imminent highlight** - a `soon` CSS class kicks in a few minutes before, so
   you can colour it to catch your eye
 - **Agenda tooltip** - the next several events with full dates on hover

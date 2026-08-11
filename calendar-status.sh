@@ -195,11 +195,16 @@ render() {
         if [ -z "$first_text" ]; then
             secs=$(( start_epoch - now ))
             (( secs < 0 )) && secs=0
-            mins=$(( secs / 60 ))
+            # Round UP, so the countdown matches what you get by subtracting the
+            # bar's own clock from the start time. Truncating reads a minute low
+            # for all but the first second of each minute: at 11:57:30 a 12:00
+            # class is 150s away, which truncates to "2m" while the clock still
+            # says 11:57. Ceiling makes it exactly "clock minutes remaining".
+            mins=$(( (secs + 59) / 60 ))
             if [ "$start_epoch" -gt "$now" ] && [ "$mins" -le "$NEAR_MINS" ]; then
                 # Close by — relative countdown, e.g. "L2PHY @SCI2 in 15m".
-                # Under a minute, count down in seconds rather than showing "0m".
-                if   [ "$mins" -lt 1 ];    then rel="${secs}s"
+                # Under a minute, count down in seconds rather than showing "1m".
+                if   [ "$secs" -lt 60 ];   then rel="${secs}s"
                 elif [ "$mins" -lt 60 ];   then rel="${mins}m"
                 elif [ "$mins" -lt 1440 ]; then rel="$(( mins / 60 ))h"
                 else                            rel="$(( mins / 1440 ))d"
