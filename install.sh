@@ -21,6 +21,7 @@ Next steps
 
     "custom/calendar": {
         "exec": "~/.config/waybar/calendar-status.sh --loop",
+        "on-click": "~/.config/waybar/calendar-status.sh --click",
         "return-type": "json",
         "restart-interval": 5,
         "tooltip": true

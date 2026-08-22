@@ -11,6 +11,10 @@
 #   calendar-status.sh          one-shot: print one line and exit (use waybar "interval")
 #   calendar-status.sh --loop   long-running: print a line every TICK_SECS seconds
 #                               (use waybar with no "interval" so it streams).
+#   calendar-status.sh --click  waybar "on-click" handler: force a re-fetch, or
+#                               run the OAuth consent flow when the token is dead.
+#   calendar-status.sh --reauth run the OAuth consent flow right now (this is what
+#                               --click spawns in a terminal).
 # The loop mode exists so the sub-minute countdown can tick second by second
 # without paying the parse cost (and a process spawn) on every tick.
 set -uo pipefail
@@ -28,6 +32,7 @@ TICK_SECS="${CAL_TICK_SECS:-1}"     # --loop only: seconds between printed lines
 CHECK_SECS="${CAL_CHECK_SECS:-15}"  # --loop only: how often to stat/re-read the cache file
 RETRY_SECS="${CAL_RETRY_SECS:-60}"  # after a failed fetch, wait this long before trying again
 STALE_SECS="${CAL_STALE_SECS:-5400}" # cache older than this + a failing fetch = say so in the bar
+TERM_CMD="${CAL_TERM_CMD:-}"        # --click only: terminal to run the OAuth flow in (auto-detected if empty)
 
 # The fetch backend. Override CAL_FETCH_CMD with any command that prints event
 # lines in the format:  [YYYY-MM-DD HH:MM - HH:MM] Title [CalName] (id: ...)
@@ -260,7 +265,7 @@ no_cache_line() { printf '{"text":"","class":"none","tooltip":false}\n'; }
 auth_line() {
     printf '{"text":"%s","class":"auth","tooltip":"%s"}\n' \
         " cal auth" \
-        "Google Calendar token expired or revoked.\nRe-authorise:\n  $GCAL_DIR/.venv/bin/python $GCAL_DIR/gcalendar.py auth"
+        "Google Calendar token expired or revoked.\nClick to re-authorise, or run:\n  $GCAL_DIR/.venv/bin/python $GCAL_DIR/gcalendar.py auth"
 }
 
 # Fetching is failing for some other reason (no network, SSH down) *and* the
@@ -280,6 +285,74 @@ status_line() {
     esac
     if [ -n "$1" ]; then render; else no_cache_line; fi
 }
+
+# ── Click handling ──────────────────────────────────────────────────────────────
+# Wired up with waybar's "on-click". A dead OAuth token is the one failure this
+# module can't recover from on its own, and the fix is a browser consent flow -
+# so make the red "cal auth" the button that starts it, rather than something you
+# have to go and read a tooltip to fix.
+
+notify() {
+    command -v notify-send >/dev/null 2>&1 && notify-send -a waybar-calendar "$1" "${2:-}"
+    return 0
+}
+
+# Drop the cache timers so a running --loop instance re-fetches on its next
+# CHECK_SECS tick instead of sitting out the rest of REFRESH/RETRY_SECS.
+force_refresh() { rm -f "$STAMP" "$ATTEMPT"; }
+
+# The consent flow prints the URL it opens and any Google-side error, so it wants
+# a visible terminal rather than being fired off into the void from a bar click.
+pick_term() {
+    local t
+    [ -n "$TERM_CMD" ] && { printf '%s' "$TERM_CMD"; return; }
+    for t in foot kitty alacritty ghostty xterm; do
+        command -v "$t" >/dev/null 2>&1 && { printf '%s -e' "$t"; return; }
+    done
+}
+
+do_reauth() {
+    local py="$GCAL_DIR/.venv/bin/python" script="$GCAL_DIR/gcalendar.py"
+    if [ ! -x "$py" ] || [ ! -f "$script" ]; then
+        notify "Calendar re-auth unavailable" "No local gcalendar.py backend under $GCAL_DIR"
+        return 1
+    fi
+    printf 'Re-authorising Google Calendar (a browser window should open)...\n\n'
+    if "$py" "$script" auth; then
+        : > "$ERRLOG"
+        set_state ok
+        force_refresh
+        notify "Calendar re-authorised" "Fresh Google token written."
+        return 0
+    fi
+    notify "Calendar re-auth failed" "See the terminal window."
+    printf '\nRe-auth failed. Press Enter to close.\n'
+    read -r _
+    return 1
+}
+
+# waybar on-click: re-auth when the token is dead, otherwise just refresh now.
+do_click() {
+    local term
+    if [ "$FETCH_STATE" != "auth" ]; then
+        force_refresh
+        notify "Calendar" "Refreshing..."
+        return 0
+    fi
+    term="$(pick_term)"
+    if [ -n "$term" ]; then
+        setsid $term "$0" --reauth >/dev/null 2>&1 &
+    else
+        # No terminal to be found - run it headless anyway; run_local_server()
+        # still opens the browser, we just lose the console output.
+        setsid "$0" --reauth >/dev/null 2>&1 &
+    fi
+}
+
+case "${1:-}" in
+    --click)  do_click; exit 0 ;;
+    --reauth) do_reauth; exit $? ;;
+esac
 
 if [ "${1:-}" = "--loop" ]; then
     raw_sig=""; last_check=0

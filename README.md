@@ -35,6 +35,9 @@ one up, otherwise it falls back to running that same CLI on a remote host over
   the last cache on network hiccups, so the bar never blanks
 - **Backend-agnostic** - point it at any command that prints the expected line
   format (SSH + `gcalendar.py`, `gcalcli`, a cron'd `.ics` dump, …)
+- **Clickable** - a click forces an immediate re-fetch, and clicking the red
+  `cal auth` opens the Google OAuth consent flow in a terminal, so an expired
+  token is fixed from the bar
 
 ---
 
@@ -88,11 +91,17 @@ Then follow the printed steps:
   ```json
   "custom/calendar": {
       "exec": "~/.config/waybar/calendar-status.sh --loop",
+      "on-click": "~/.config/waybar/calendar-status.sh --click",
       "return-type": "json",
       "restart-interval": 5,
       "tooltip": true
   }
   ```
+
+  `on-click` is optional but recommended - see
+  [When the backend breaks](#when-the-backend-breaks). Any environment variables
+  set inline in `exec` need repeating in `on-click`, since it is a separate
+  process.
 
   That streams a line every second (see [How it works](#how-it-works)). For the
   simpler polled setup, drop `--loop` and use `"interval": 60` instead of
@@ -129,6 +138,7 @@ All options are environment variables - set them inline in the module `exec`, e.
 | `CAL_CHECK_SECS`      | `15`                          | `--loop` only: how often to re-check the cache file for changes     |
 | `CAL_RETRY_SECS`      | `60`                          | After a failed fetch, wait this long before retrying                |
 | `CAL_STALE_SECS`      | `5400`                        | Failing fetch + cache older than this = show the `stale` warning    |
+| `CAL_TERM_CMD`        | *(auto: foot/kitty/alacritty/ghostty/xterm)* | `--click` only: terminal used to run the OAuth consent flow |
 
 ### Styling
 
@@ -153,6 +163,17 @@ passed, `render` produced an empty string - exactly what "nothing on today"
 looks like. A dead OAuth token could sit there for days looking like a quiet
 week. Now the bar says `cal auth` (or `cal stale`), and the tooltip carries the
 command that fixes it.
+
+With `on-click` wired up, the module is also the button that fixes it:
+
+- clicking `cal auth` spawns a terminal running the OAuth consent flow
+  (`gcalendar.py auth`), which opens a browser for consent and writes a fresh
+  token. On success the cache timers are cleared so the bar recovers on its next
+  `CAL_CHECK_SECS` tick rather than waiting out `CAL_REFRESH_SECS`
+- clicking the module in any other state just forces an immediate re-fetch
+
+Re-auth only works with the local backend, since that is where the OAuth token
+lives; on the SSH backend the click reports that there is nothing to re-auth.
 
 ---
 
